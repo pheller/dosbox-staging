@@ -876,7 +876,7 @@ OPL::OPL(Section *configuration, const OplMode oplmode)
 
 	// Used to be 2.0, which was measured to be too high. Exact value
 	// depends on card/clone.
-	mixer_chan->SetScale(1.5f);
+	mixer_chan->SetVolumeScale(1.5f);
 
 	Init(mixer_chan->GetSampleRate());
 

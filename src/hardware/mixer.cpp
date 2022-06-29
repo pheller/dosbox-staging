@@ -222,8 +222,8 @@ static void init_reverb_presets()
 	tiny.params[EmVerb::DECAY]         = 0.0f;
 	tiny.params[EmVerb::DAMPINGFREQ]   = 1.0f;
 
-	tiny.synthesizer_send_level   = 0.97f; // -4dB
-	tiny.digital_audio_send_level = 0.97f; // -4dB
+	tiny.synthesizer_send_level   = 0.88;
+	tiny.digital_audio_send_level = 0.88;
 
 	tiny.highpass_cutoff_freq = 200.0f;
 
@@ -238,8 +238,8 @@ static void init_reverb_presets()
 	small.params[EmVerb::DECAY]         = 0.50f;
 	small.params[EmVerb::DAMPINGFREQ]   = 0.70f;
 
-	small.synthesizer_send_level   = 0.28f; // -17dB
-	small.digital_audio_send_level = 0.28f; // -17dB
+	small.synthesizer_send_level   = 0.52;
+	small.digital_audio_send_level = 0.52;
 
 	small.highpass_cutoff_freq = 200.0f;
 
@@ -254,8 +254,8 @@ static void init_reverb_presets()
 	medium.params[EmVerb::DECAY]         = 0.42f;
 	medium.params[EmVerb::DAMPINGFREQ]   = 0.21f;
 
-	medium.synthesizer_send_level   = 0.42f; // -15dB
-	medium.digital_audio_send_level = 0.42f; // -15dB
+	medium.synthesizer_send_level   = 0.58f;
+	medium.digital_audio_send_level = 0.58f;
 
 	medium.highpass_cutoff_freq = 170.0f;
 
@@ -270,8 +270,8 @@ static void init_reverb_presets()
 	large.params[EmVerb::DECAY]         = 0.52f;
 	large.params[EmVerb::DAMPINGFREQ]   = 0.21f;
 
-	large.synthesizer_send_level   = 0.65f; // -12dB
-	large.digital_audio_send_level = 0.0f;  // -12dB
+	large.synthesizer_send_level   = 0.70f;
+	large.digital_audio_send_level = 0.07f;
 
 	large.highpass_cutoff_freq = 140.0f;
 }
@@ -2143,8 +2143,7 @@ void init_mixer_dosbox_settings(Section_prop &sec_prop)
 
 	string_prop = sec_prop.Add_string("reverb", when_idle, "off");
 	string_prop->Set_help(
-	        "Enable reverb globally on all audio channels (except MT-32, FluidSynth, and CD Audio)\n"
-			"to add a sense of space to the sound:\n"
+	        "Enable reverb globally all audio channels to add a sense of space to the sound:\n"
 	        "  off:     No reverb (default).\n"
 	        "  on:      Enable reverb (medium preset).\n"
 	        "  tiny:    Simulates the sound of a small integrated speaker in a room;\n"

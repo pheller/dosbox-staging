@@ -490,6 +490,17 @@ void OPL::Init(const uint16_t sample_rate)
 
 void OPL::WriteReg(const uint32_t reg, const uint8_t val)
 {
+	if (reg >= 0xb0 && reg <= 0xb8) {
+		static char chan_state[9] = {};
+		auto chan = reg & 0xf;
+		auto state = (val & 0x20) ? '*' : ' ';
+		chan_state[chan] = state;
+
+		LOG_MSG("CHAN_STATE: 0%c 1%c 2%c 3%c 4%c 5%c 6%c 7%c 8%c",
+				chan_state[0], chan_state[1], chan_state[2], chan_state[3], chan_state[4],
+				chan_state[5], chan_state[6], chan_state[7], chan_state[8]
+		);
+	}
 	OPL3_WriteRegBuffered(&oplchip, static_cast<uint16_t>(reg), val);
 	if (reg == 0x105)
 		newm = reg & 0x01;

@@ -119,11 +119,12 @@ enum LINE_INDEX : uint8_t {
 };
 
 enum class ChannelFeature {
-	Stereo,
-	ReverbSend,
+	AutoSleep,
 	ChorusSend,
+	DigitalAudio,
+	ReverbSend,
+	Stereo,
 	Synthesizer,
-	DigitalAudio
 };
 
 enum class FilterState { Off, On, ForcedOn };
@@ -197,6 +198,8 @@ public:
 
 	void FillUp();
 	void Enable(const bool should_enable);
+	void MaybeSleep();
+	bool WakeUp();
 	void FlushSamples();
 
 	AudioFrame volume = {1.0f, 1.0f};
@@ -222,6 +225,8 @@ private:
 	void UpdateZOHUpsamplerState();
 
 	AudioFrame ApplyCrossfeed(const AudioFrame &frame) const;
+
+	void AccumulateAutoSleepFrame(const AudioFrame &frame);
 
 	std::string name = {};
 	Envelope envelope;
@@ -309,6 +314,14 @@ private:
 		float send_gain = 0.0f;
 	} reverb = {};
 	bool do_reverb_send = false;
+
+	struct AutoSleep {
+		int accumulator     = 0;
+		int64_t woken_at_ms = 0;
+		void Reset();
+	} autosleep = {};
+
+	const bool do_autosleep = false;
 };
 using mixer_channel_t = std::shared_ptr<MixerChannel>;
 

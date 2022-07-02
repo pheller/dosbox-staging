@@ -190,7 +190,8 @@ MixerChannel::MixerChannel(MIXER_Handler _handler, const char *_name,
         : name(_name),
           envelope(_name),
           handler(_handler),
-          features(_features)
+          features(_features),
+          do_autosleep(HasFeature(ChannelFeature::AutoSleep))
 {}
 
 bool MixerChannel::HasFeature(const ChannelFeature feature)
@@ -445,6 +446,7 @@ void MixerChannel::Enable(const bool should_enable)
 		next_frame = {0.0f, 0.0f};
 	}
 	is_enabled = should_enable;
+
 	MIXER_UnlockAudioDevice();
 }
 
@@ -514,8 +516,11 @@ void MixerChannel::SetPeakAmplitude(const int peak)
 
 void MixerChannel::Mix(const int frames_requested)
 {
+	if (!is_enabled)
+		return;
+
 	frames_needed = frames_requested;
-	while (is_enabled && frames_needed > frames_done) {
+	while (frames_needed > frames_done) {
 		auto frames_remaining = frames_needed - frames_done;
 		frames_remaining *= freq_add;
 		frames_remaining = (frames_remaining >> FREQ_SHIFT) +
@@ -525,6 +530,8 @@ void MixerChannel::Mix(const int frames_requested)
 		frames_remaining = std::min(frames_remaining, MIXER_BUFSIZE); // avoid overflow
 		handler(check_cast<uint16_t>(frames_remaining));
 	}
+	if (do_autosleep)
+		MaybeSleep();
 }
 
 void MixerChannel::AddSilence()
@@ -994,6 +1001,46 @@ AudioFrame MixerChannel::ApplyCrossfeed(const AudioFrame &frame) const
 	return {a.left + b.left, a.right + b.right};
 }
 
+void MixerChannel::AutoSleep::Reset()
+{
+	accumulator = 0;
+	woken_at_ms = GetTicks();
+}
+
+bool MixerChannel::WakeUp()
+{
+	assert(do_autosleep);
+	autosleep.Reset();
+
+	const auto was_asleep = !is_enabled;
+
+	if (was_asleep)
+		Enable(true);
+
+	return was_asleep;
+}
+
+void MixerChannel::AccumulateAutoSleepFrame(const AudioFrame &frame)
+{
+	autosleep.accumulator += abs(static_cast<int16_t>(frame.left)) +
+	                         abs(static_cast<int16_t>(frame.right));
+}
+
+void MixerChannel::MaybeSleep()
+{
+	constexpr auto consider_sleeping_after_ms = 250;
+
+	// Not enough time has passed.. try again later
+	if (GetTicksSince(autosleep.woken_at_ms) < consider_sleeping_after_ms)
+		return;
+
+	// Enough time has passed and we were silent: sleep!
+	if (!autosleep.accumulator)
+		Enable(false);
+	else
+		autosleep.Reset(); // try again
+}
+
 template <class Type, bool stereo, bool signeddata, bool nativeorder>
 void MixerChannel::AddSamples(const uint16_t frames, const Type *data)
 {
@@ -1048,10 +1095,6 @@ void MixerChannel::AddSamples(const uint16_t frames, const Type *data)
 		if (do_crossfeed)
 			frame = ApplyCrossfeed(frame);
 
-		// Mix samples to the master output
-		mixer.work[mixpos][0] += frame.left;
-		mixer.work[mixpos][1] += frame.right;
-
 		if (do_reverb_send) {
 			// Mix samples to the reverb aux buffer, scaled by the
 			// reverb send volume
@@ -1059,11 +1102,17 @@ void MixerChannel::AddSamples(const uint16_t frames, const Type *data)
 			mixer.aux_reverb[mixpos][1] += frame.right * reverb.send_gain;
 		}
 
+		if (do_autosleep)
+			AccumulateAutoSleepFrame(frame);
+
+		// Mix samples to the master output
+		mixer.work[mixpos][0] += frame.left;
+		mixer.work[mixpos][1] += frame.right;
+
 		++mixpos;
 	}
 	frames_done += out_frames;
 
-	last_samples_were_silence = false;
 	MIXER_UnlockAudioDevice();
 }
 
@@ -1107,8 +1156,14 @@ void MixerChannel::AddStretched(const uint16_t len, int16_t *data)
 		const auto sample = prev_frame.left +
 		                    ((diff * diff_mul) >> FREQ_SHIFT);
 
-		mixer.work[mixpos][mapped_output_left]  += sample * volume_gain.left;
-		mixer.work[mixpos][mapped_output_right] += sample * volume_gain.right;
+		const AudioFrame frame_with_gain = {sample * volume_gain.left,
+		                                    sample * volume_gain.right};
+		if (do_autosleep)
+			AccumulateAutoSleepFrame(frame_with_gain);
+
+		mixer.work[mixpos][mapped_output_left] += frame_with_gain.left;
+		mixer.work[mixpos][mapped_output_right] += frame_with_gain.right;
+
 		mixpos++;
 	}
 

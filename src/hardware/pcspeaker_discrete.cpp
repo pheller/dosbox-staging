@@ -69,13 +69,15 @@ void PcSpeakerDiscrete::AddDelayEntry(const float index, float vol)
 		vol *= sqw_scalar;
 // #define DEBUG_SQUARE_WAVE 1
 #ifdef DEBUG_SQUARE_WAVE
-		LOG_MSG("PCSPEAKER: square-wave [prev_port_b=%u, port_b=%u, prev_pit=%lu, pit=%lu]",
+		LOG_MSG("PCSPEAKER: square-wave [vol=%f, prev_port_b=%u, port_b=%u, prev_pit=%lu, pit=%lu]",
+		        vol,
 		        prev_port_b,
 		        port_b,
 		        prev_pit_mode,
 		        pit_mode);
 	} else {
-		LOG_MSG("PCSPEAKER: sine-wave [prev_port_b=%u, port_b=%u, prev_pit=%lu, pit=%lu], ",
+		LOG_MSG("PCSPEAKER: sine-wave [vol=%f, prev_port_b=%u, port_b=%u, prev_pit=%lu, pit=%lu], ",
+		        vol,
 		        prev_port_b,
 		        port_b,
 		        prev_pit_mode,
@@ -88,9 +90,9 @@ void PcSpeakerDiscrete::AddDelayEntry(const float index, float vol)
 	// This is extremely verbose; pipe the output to a file.
 	// Display the previous and current speaker modes w/ requested volume
 	if (fabsf(vol) > amp_neutral)
-		LOG_MSG("PCSPEAKER: Adding pos=%3s, pit=%" PRIuPTR "|%" PRIuPTR
+		LOG_MSG("PCSPEAKER: Adding pit=%" PRIuPTR "|%" PRIuPTR
 		        ", pwm=%d|%d, volume=%6.0f",
-		        prev_pos > 0 ? "yes" : "no", prev_pit_mode,
+		        prev_pit_mode,
 		        pit_mode, prev_port_b, port_b,
 		        static_cast<float>(vol));
 #endif
@@ -282,14 +284,14 @@ void PcSpeakerDiscrete::SetCounter(int count, const PitMode mode)
 		return;
 	}
 	// Activate the channel after queuing new speaker entries
-	channel->Enable(true);
+	channel->WakeUp();
 }
 
 // Returns the amp_neutral voltage if the speaker's  fully faded,
 // otherwise returns the fallback if the speaker is active.
 float PcSpeakerDiscrete::NeutralOr(const float fallback) const
 {
-	return !idle_countdown ? amp_neutral : fallback;
+	return channel->is_enabled ? fallback : amp_neutral;
 }
 
 // Returns, in order of preference:
@@ -334,23 +336,7 @@ void PcSpeakerDiscrete::SetType(const PpiPortB &b)
 	};
 
 	// Activate the channel after queuing new speaker entries
-	channel->Enable(true);
-}
-
-// Halt the channel after the speaker has idled
-void PcSpeakerDiscrete::PlayOrSleep(const bool samples_were_processed,
-                                    const uint16_t requested_samples,
-                                    float buffer[])
-{
-	channel->AddSamples_mfloat(requested_samples, buffer);
-
-	// Maybe sleep the channel
-	if (samples_were_processed && requested_samples)
-		idle_countdown = idle_grace_time_ms;
-	else if (idle_countdown > 0)
-		idle_countdown--;
-	else
-		channel->Enable(false);
+	channel->WakeUp();
 }
 
 void PcSpeakerDiscrete::ChannelCallback(const uint16_t frames)
@@ -443,7 +429,7 @@ void PcSpeakerDiscrete::ChannelCallback(const uint16_t frames)
 			}
 			buf[i]   = value / period_per_frame_ms;
 		}
-		PlayOrSleep(samples_were_processed, todo, buf);
+		channel->AddSamples_mfloat(todo, buf);
 
 		remaining = check_cast<uint16_t>(remaining - todo);
 	}
@@ -485,8 +471,9 @@ PcSpeakerDiscrete::PcSpeakerDiscrete()
 	channel = MIXER_AddChannel(callback,
 	                           0,
 	                           device_name,
-	                           {ChannelFeature::ReverbSend,
+	                           {ChannelFeature::AutoSleep,
 	                            ChannelFeature::ChorusSend,
+	                            ChannelFeature::ReverbSend,
 	                            ChannelFeature::Synthesizer});
 	assert(channel);
 
@@ -503,6 +490,6 @@ PcSpeakerDiscrete::PcSpeakerDiscrete()
 PcSpeakerDiscrete::~PcSpeakerDiscrete()
 {
 	assert(channel);
-	channel->Enable(false);
+	channel.reset();
 	LOG_MSG("%s: Shutting down %s model", device_name, model_name);
 }

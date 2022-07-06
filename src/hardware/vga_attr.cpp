@@ -284,7 +284,35 @@ uint8_t read_p3c1(io_port_t, io_width_t)
 	return 0;
 }
 
-void VGA_SetupAttr(void) {
+static void parse_ega_palette()
+{
+	const auto render_sec = static_cast<const Section_prop *>(
+	        control->GetSection("render"));
+
+	assert(render_sec);
+	const std::string ega_palette_prefs = render_sec->Get_string("ega_palette");
+
+	LOG_MSG("ega_palette: %s", ega_palette_prefs.c_str());
+
+	const auto colors = split(ega_palette_prefs);
+	if (colors.size() != 16) {
+		LOG_WARNING("BLAH: not 16 colors");
+		return;
+	}
+
+	for (size_t i = 0; i < colors.size(); ++i) {
+		uint32_t c;
+		if (sscanf(colors[i].c_str(), "%x", &c)) {
+//			custom_cga_palette[i].red  = (c >> 16) & 0xff;
+//			custom_cga_palette[i].green = (c >> 8) & 0xff;
+//			custom_cga_palette[i].blue = c & 0xff;
+		}
+	}
+}
+
+void VGA_SetupAttr() {
+	parse_ega_palette();
+
 	if (IS_EGAVGA_ARCH) {
 		IO_RegisterWriteHandler(0x3c0, write_p3c0, io_width_t::byte);
 		if (machine==MCH_EGA)

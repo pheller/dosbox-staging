@@ -557,6 +557,9 @@ void DOSBOX_Init() {
 	const char *mono_pal[] = {"white", "paperwhite", "green", "amber", 0};
 	pstring->Set_values(mono_pal);
 
+	pstring = secprop->Add_string("cga_palette", always, "none");
+	pstring->Set_help("Override default CGA palette.\n");
+
 	pmulti = secprop->Add_multi("scaler", always, " ");
 	pmulti->SetValue("none");
 	pmulti->Set_help("Scaler used to enlarge/enhance low resolution modes.\n"

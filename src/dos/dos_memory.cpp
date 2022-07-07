@@ -25,20 +25,59 @@
 
 static uint16_t memAllocStrategy = 0x00;
 
-static void DOS_CompressMemory(void) {
+constexpr int8_t max_repairs = 18;
+
+static void DOS_CompressMemory(void)
+{
 	uint16_t mcb_segment=dos.firstMCB;
+
 	DOS_MCB mcb(mcb_segment);
+	assert(mcb.GetType() == 0x4d);
+
 	DOS_MCB mcb_next(0);
 
-	while (mcb.GetType()!=0x5a) {
+	auto remaining_repairs = max_repairs;
+
+	while (mcb.GetType() != 0x5a) {
 		mcb_next.SetPt((uint16_t)(mcb_segment+mcb.GetSize()+1));
-		if (GCC_UNLIKELY((mcb_next.GetType()!=0x4d) && (mcb_next.GetType()!=0x5a))) E_Exit("Corrupt MCB chain");
-		if ((mcb.GetPSPSeg()==MCB_FREE) && (mcb_next.GetPSPSeg()==MCB_FREE)) {
+
+		auto next_type = mcb_next.GetType();
+
+		const bool next_is_valid = GCC_UNLIKELY(next_type == 0x4d ||
+		                                        next_type == 0x5a);
+
+		if ((mcb.GetPSPSeg() == MCB_FREE) &&
+		    (mcb_next.GetPSPSeg() == MCB_FREE)) {
 			mcb.SetSize(mcb.GetSize()+mcb_next.GetSize()+1);
-			mcb.SetType(mcb_next.GetType());
+			if (next_is_valid) {
+				mcb.SetType(next_type);
+			} else if (remaining_repairs-- > 0) {
+				LOG_WARNING("DOS_MEMORY: Merging invalid next type %02x with current type %02x",
+				            next_type,
+				            mcb.GetType());
+			} else {
+				E_Exit("DOS_MEMORY: No MCB repairs remaining during compression");
+			}
+
 		} else {
 			mcb_segment+=mcb.GetSize()+1;
+			const auto last_type = mcb.GetType();
 			mcb.SetPt(mcb_segment);
+			const auto t             = mcb.GetType();
+			const bool type_is_valid = GCC_UNLIKELY(t == 0x4d ||
+			                                        t == 0x5a);
+			if (!type_is_valid) {
+				if (remaining_repairs-- > 0) {
+					mcb.SetType(last_type);
+					LOG_WARNING("DOS_MEMORY: Merging invalid current type %02x with prior type %02x",
+					            t,
+					            last_type);
+				} else {
+					E_Exit("DOS_MEMORY: No MCB repairs remaining during compression");
+				}
+			}
+			// LOG_MSG("DOS_MEMORY: increment to next has type
+			// %02x", mcb.GetType());
 		}
 	}
 }
@@ -46,13 +85,24 @@ static void DOS_CompressMemory(void) {
 void DOS_FreeProcessMemory(uint16_t pspseg) {
 	uint16_t mcb_segment=dos.firstMCB;
 	DOS_MCB mcb(mcb_segment);
+	auto remaining_repairs = max_repairs;
+
 	for (;;) {
 		if (mcb.GetPSPSeg()==pspseg) {
 			mcb.SetPSPSeg(MCB_FREE);
 		}
-		if (mcb.GetType()==0x5a) break;
-		if (GCC_UNLIKELY(mcb.GetType()!=0x4d)) E_Exit("Corrupt MCB chain");
-		mcb_segment+=mcb.GetSize()+1;
+		const auto mcb_type = mcb.GetType();
+		if (mcb_type == 0x5a) {
+			break;
+		} else if (GCC_UNLIKELY(mcb_type != 0x4d)) {
+			mcb.SetType(0x4d);
+			LOG_WARNING("DOS_MEMORY: Fixing corrupt MCG type %02x when freeing",
+			            mcb_type);
+			if (!remaining_repairs--) {
+				E_Exit("DOS_MEMORY: Corrupt MCB chain found freeing process memory");
+			}
+		}
+		mcb_segment += mcb.GetSize() + 1;
 		mcb.SetPt(mcb_segment);
 	}
 
@@ -67,7 +117,9 @@ void DOS_FreeProcessMemory(uint16_t pspseg) {
 			umb_start+=umb_mcb.GetSize()+1;
 			umb_mcb.SetPt(umb_start);
 		}
-	} else if (umb_start!=0xffff) LOG(LOG_DOSMISC,LOG_ERROR)("Corrupt UMB chain: %x",umb_start);
+	} else if (umb_start != 0xffff) {
+		E_Exit("DOS_MEMORY: Corrupt MCB chain found in upper memory");
+	}
 
 	DOS_CompressMemory();
 }
@@ -95,7 +147,8 @@ bool DOS_AllocateMemory(uint16_t * segment,uint16_t * blocks) {
 	if (umb_start==UMB_START_SEG) {
 		/* start with UMBs if requested (bits 7 or 6 set) */
 		if (mem_strat&0xc0) mcb_segment=umb_start;
-	} else if (umb_start!=0xffff) LOG(LOG_DOSMISC,LOG_ERROR)("Corrupt UMB chain: %x",umb_start);
+	} else if (umb_start != 0xffff)
+		E_Exit("DOS_MEMORY: Corrupt MCB chain, umb_start!=0xffff, allocating");
 
 	DOS_MCB mcb(0);
 	DOS_MCB mcb_next(0);
@@ -260,6 +313,7 @@ bool DOS_ResizeMemory(uint16_t segment,uint16_t * blocks) {
 		mcb_next.SetPSPSeg(MCB_FREE);
 		mcb.SetType(0x4d);
 		mcb.SetPSPSeg(dos.psp());
+		DOS_CompressMemory();
 		return true;
 	}
 
